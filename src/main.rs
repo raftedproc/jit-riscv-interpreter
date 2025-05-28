@@ -49,6 +49,10 @@ fn main() {
 
     let mut jit     = JITModule::new(builder);
 
+    // for i in 0..32 {
+    //     println!("x{} = {}", i, cpu.regs[i]);
+    // }
+
     // исполняем, переводя TB максимум по 16 инструкций
     loop {
         let (fn_ptr, insns) = compile_tb(&mut jit, &cpu, 16);
@@ -56,13 +60,12 @@ fn main() {
             unsafe { std::mem::transmute(fn_ptr) };
         let next_pc = executor(&mut cpu);
         println!("insns {}", insns);
-        println!("x10 {}", cpu.regs[10]);
-        println!("x20 {}", cpu.regs[20]);
-        println!("x28 {}", cpu.regs[28]);
         if insns == 0 { break; }      // нет декодированных инструкций
         cpu.pc = next_pc;
         if next_pc == 0 { break; }    // наш demo JALR x0,0
     }
 
-    println!("x28 = {}", cpu.regs[28]); // печатает 3
+    // for i in 0..32 {
+    //     println!("x{} = {}", i, cpu.regs[i]);
+    // }
 }

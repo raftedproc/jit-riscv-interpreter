@@ -164,11 +164,12 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
     }
 
     // если дошли до лимита, вернуть следующий PC
-    if cnt == max_insns && !term_was_added {
+    if cnt == max_insns || !term_was_added {
         store_registers_to_cpu(&mut b, cpu_ptr, &regs);
         let rvals = &[b.ins().iconst(types::I32, pc as i64)];
         b.ins().return_(rvals);
     }
+
     b.seal_all_blocks();
     // replace with ctx.func.signature ?
     let sign = b.func.signature.clone();
@@ -214,6 +215,7 @@ fn call_mem_load(b: &mut FunctionBuilder, cpu_ptr: Value, addr: Value) -> Value 
     let call = b.ins().call(sig, &[cpu_ptr, addr]);
     b.inst_results(call)[0]
 }
+
 fn call_mem_store(b: &mut FunctionBuilder, cpu_ptr: Value, addr: Value, val: Value) {
     let call_conv = b.func.signature.call_conv;
     let sig = {
