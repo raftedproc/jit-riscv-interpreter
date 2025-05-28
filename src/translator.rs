@@ -1,4 +1,4 @@
-use cranelift_codegen::ir::*;
+use cranelift_codegen::ir::{condcodes::IntCC, *};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module};
@@ -44,8 +44,20 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
     while cnt < max_insns {
         let raw = cpu.load32(pc);
         println!("raw {:x}", raw);
-        let inst = raw.decode(Isa::Rv32).unwrap();
-        println!("inst {:?}", inst);
+        
+        // Handle the case where we might be reading beyond the program
+        // (memory might be zeroed or have invalid instruction patterns)
+        let inst = match raw.decode(Isa::Rv32) {
+            Ok(inst) => {
+                println!("inst {:?}", inst);
+                inst
+            },
+            Err(e) => {
+                println!("Failed to decode instruction at pc={}: {:?}", pc, e);
+                // We've reached the end of the program, so break the loop
+                break;
+            }
+        };
         match inst.opc {
             OpcodeKind::BaseI(BaseIOpcode::ADDI) => {
                 let Instruction { rd, rs1, imm, .. } = inst;
@@ -60,6 +72,59 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
                 let v = b.ins().iadd(v1, v2);
                 b.def_var(regs[rd.unwrap()], v);
             }
+            OpcodeKind::BaseI(BaseIOpcode::SUB) => {
+                let Instruction { rd, rs1, rs2, .. } = inst;
+                let v1 = b.use_var(regs[rs1.unwrap()]);
+                let v2 = b.use_var(regs[rs2.unwrap()]);
+                let v = b.ins().isub(v1, v2);
+                b.def_var(regs[rd.unwrap()], v);
+            }
+            OpcodeKind::BaseI(BaseIOpcode::XOR) => {
+                let Instruction { rd, rs1, rs2, .. } = inst;
+                let v1 = b.use_var(regs[rs1.unwrap()]);
+                let v2 = b.use_var(regs[rs2.unwrap()]);
+                let v = b.ins().bxor(v1, v2);
+                b.def_var(regs[rd.unwrap()], v);
+            }
+            OpcodeKind::BaseI(BaseIOpcode::OR) => {
+                let Instruction { rd, rs1, rs2, .. } = inst;
+                let v1 = b.use_var(regs[rs1.unwrap()]);
+                let v2 = b.use_var(regs[rs2.unwrap()]);
+                let v = b.ins().bor(v1, v2);
+                b.def_var(regs[rd.unwrap()], v);
+            }
+            OpcodeKind::BaseI(BaseIOpcode::AND) => {
+                let Instruction { rd, rs1, rs2, .. } = inst;
+                let v1 = b.use_var(regs[rs1.unwrap()]);
+                let v2 = b.use_var(regs[rs2.unwrap()]);
+                let v = b.ins().band(v1, v2);
+                b.def_var(regs[rd.unwrap()], v);
+            }
+            OpcodeKind::BaseI(BaseIOpcode::SLL) => {
+                let Instruction { rd, rs1, rs2, .. } = inst;
+                let v1 = b.use_var(regs[rs1.unwrap()]);
+                let v2 = b.use_var(regs[rs2.unwrap()]);
+                let v = b.ins().ishl(v1, v2);
+                b.def_var(regs[rd.unwrap()], v);
+            }
+            OpcodeKind::BaseI(BaseIOpcode::SRL) => {
+                let Instruction { rd, rs1, rs2, .. } = inst;
+                let v1 = b.use_var(regs[rs1.unwrap()]);
+                let v2 = b.use_var(regs[rs2.unwrap()]);
+                let v = b.ins().ushr(v1, v2);
+                b.def_var(regs[rd.unwrap()], v);
+            }
+            OpcodeKind::BaseI(BaseIOpcode::SLT) => {
+                let Instruction { rd, rs1, rs2, .. } = inst;
+                let v1 = b.use_var(regs[rs1.unwrap()]);
+                let v2 = b.use_var(regs[rs2.unwrap()]);
+                // Use icmp_slt to compare if v1 < v2 (signed comparison)
+                let cond = b.ins().icmp(IntCC::SignedLessThan, v1, v2);
+                let zero = b.ins().iconst(types::I32, 0);
+                let one = b.ins().iconst(types::I32, 1);
+                let v = b.ins().select(cond, one, zero);
+                b.def_var(regs[rd.unwrap()], v);
+            }   
             OpcodeKind::BaseI(BaseIOpcode::LW) => {
                 let Instruction { rd, rs1, imm, .. } = inst;
                 let base = b.use_var(regs[rs1.unwrap()]);
@@ -80,22 +145,17 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
                 let next = b.ins().iadd_imm(target, imm.unwrap() as i64);
                 let const_pc = b.ins().iconst(types::I32, (pc + 4) as i64);
                 b.def_var(regs[rd.unwrap()], const_pc);
-
-                for i in 0..32 {
-                    let reg_val = b.use_var(regs[i]);
-                    let off = (i * 4) as i64;
-            
-                    // Calculate pointer to CPU's regs[i]
-                    let addr = b.ins().iadd_imm(cpu_ptr, off);
-                    
-                    // Store the register value back to CPU memory
-                    b.ins().store(MemFlags::new(), reg_val, addr, 0);
-                    println!("Stored reg {} value back to CPU at offset {}", i, off);
-                }
-
+                store_registers_to_cpu(&mut b, cpu_ptr, &regs);
                 b.ins().return_(&[next]);
                 term_was_added = true;
                 break;
+            }
+            OpcodeKind::M(raki::MOpcode::MUL) => {
+                let Instruction { rd, rs1, rs2, .. } = inst;
+                let v1 = b.use_var(regs[rs1.unwrap()]);
+                let v2 = b.use_var(regs[rs2.unwrap()]);
+                let v = b.ins().imul(v1, v2);
+                b.def_var(regs[rd.unwrap()], v);
             }
             _ => unimplemented!("demo supports few instrs"),
         }
@@ -103,10 +163,9 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
         cnt += 1;
     }
 
-    
-
     // если дошли до лимита, вернуть следующий PC
     if cnt == max_insns && !term_was_added {
+        store_registers_to_cpu(&mut b, cpu_ptr, &regs);
         let rvals = &[b.ins().iconst(types::I32, pc as i64)];
         b.ins().return_(rvals);
     }
@@ -120,6 +179,21 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
     jit.clear_context(&mut ctx);
     jit.finalize_definitions().expect("must be ok");
     (jit.get_finalized_function(id), cnt)
+}
+
+fn store_registers_to_cpu(b: &mut FunctionBuilder<'_>, cpu_ptr: Value, regs: &[Variable]) {
+    // TBD store only used
+    for i in 0..32 {
+        let reg_val = b.use_var(regs[i]);
+        let off = (i * 4) as i64;
+            
+        // Calculate pointer to CPU's regs[i]
+        let addr = b.ins().iadd_imm(cpu_ptr, off);
+    
+        // Store the register value back to CPU memory
+        b.ins().store(MemFlags::new(), reg_val, addr, 0);
+        // println!("Stored reg {} value back to CPU at offset {}", i, off);
+    }
 }
 
 /// helper-ы для доступа к памяти: вызываем обычные Rust-функции

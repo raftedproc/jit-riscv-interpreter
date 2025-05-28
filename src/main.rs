@@ -41,31 +41,27 @@ fn main() {
     ];
 
     let mut cpu = Cpu::new(&code);
-    let mut builder = JITBuilder::new(cranelift_module::default_libcall_names())
-        .expect("failed to create JITBuilder");
+    let mut builder = JITBuilder::new(cranelift_module::default_libcall_names()).expect("failed to create JITBuilder");
 
     // регистрируем helpers
-    builder.symbol("mem_load32", mem_load32 as *const u8);
+    builder.symbol("mem_load32",  mem_load32 as *const u8);
     builder.symbol("mem_store32", mem_store32 as *const u8);
 
-    let mut jit = JITModule::new(builder);
+    let mut jit     = JITModule::new(builder);
 
     // исполняем, переводя TB максимум по 16 инструкций
     loop {
         let (fn_ptr, insns) = compile_tb(&mut jit, &cpu, 16);
-        let executor: extern "C" fn(*mut Cpu) -> u32 = unsafe { std::mem::transmute(fn_ptr) };
+        let executor: extern "C" fn(*mut Cpu) -> u32 =
+            unsafe { std::mem::transmute(fn_ptr) };
         let next_pc = executor(&mut cpu);
         println!("insns {}", insns);
         println!("x10 {}", cpu.regs[10]);
         println!("x20 {}", cpu.regs[20]);
         println!("x28 {}", cpu.regs[28]);
-        if insns == 0 {
-            break;
-        } // нет декодированных инструкций
+        if insns == 0 { break; }      // нет декодированных инструкций
         cpu.pc = next_pc;
-        if next_pc == 0 {
-            break;
-        } // наш demo JALR x0,0
+        if next_pc == 0 { break; }    // наш demo JALR x0,0
     }
 
     println!("x28 = {}", cpu.regs[28]); // печатает 3
