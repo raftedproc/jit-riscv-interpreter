@@ -1,10 +1,11 @@
 use cranelift_codegen::ir::{condcodes::IntCC, *};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
-use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{Linkage, Module};
+use cranelift_jit::JITModule;
+use cranelift_module::Module;
 use raki::{BaseIOpcode, Decode, Instruction, Isa, OpcodeKind};
 
 use crate::cpu::Cpu;
+use crate::reg::*;
 
 pub extern "C" fn mem_load32(cpu: &mut Cpu, addr: u32) -> u32 {
     cpu.load32(addr)
@@ -29,7 +30,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
     let cpu_ptr = b.block_params(entry)[0]; // *mut Cpu as i64
     let regs: [Variable; 32] = core::array::from_fn(|i| Variable::from_u32(i as u32));
     // Track which registers have been modified during this TB
-    let mut regs_read_so_far = [false; 32];
+    let mut regs_read_or_changed_so_far = [false; 32];
     let mut dirty_regs = [false; 32];
 
     // объявим x0..x31 как переменные
@@ -63,16 +64,18 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             OpcodeKind::BaseI(BaseIOpcode::ADDI) => {
                 let Instruction { rd, rs1, imm, .. } = inst;
                 // todo not needed to actually load rs1 if it is x0
-                let rs1 = load_reg_if_needed(&mut b, cpu_ptr, rs1.unwrap(), &mut regs_read_so_far, &regs);
-                println!("ADDI {} to", regs[rs1]);
+                let rs1 = load_reg_if_needed(&mut b, cpu_ptr, rs1.unwrap(), &mut regs_read_or_changed_so_far, &regs);
+
                 let v1 = b.use_var(regs[rs1]);
                 let r = b.ins().iadd_imm(v1, imm.unwrap() as i64);
-
+                println!("ADDI {} r {}", v1, r);
+                
+                regs_read_or_changed_so_far[rd.unwrap()] = true;
                 define_rd_and_mark_dirty(&mut b, &regs, &mut dirty_regs, rd, r);
             }
             OpcodeKind::BaseI(BaseIOpcode::ADD) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -82,7 +85,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::SUB) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -92,21 +95,17 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::XOR) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
                 let v = b.ins().bxor(v1, v2);
 
                 define_rd_and_mark_dirty(&mut b, &regs, &mut dirty_regs, rd, v);
-
-                // let rd_idx = rd.unwrap();
-                // b.def_var(regs[rd_idx], v);
-                // dirty_regs[rd_idx] = true;
             }
             OpcodeKind::BaseI(BaseIOpcode::OR) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -117,7 +116,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::AND) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -128,7 +127,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::SLL) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -139,7 +138,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::SRL) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -150,7 +149,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::SLT) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -164,7 +163,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::LW) => {
                 let Instruction { rd, rs1, imm, .. } = inst;
-                let rs1 = load_reg_if_needed(&mut b, cpu_ptr, rs1.unwrap(), &mut regs_read_so_far, &regs);
+                let rs1 = load_reg_if_needed(&mut b, cpu_ptr, rs1.unwrap(), &mut regs_read_or_changed_so_far, &regs);
 
                 let base = b.use_var(regs[rs1]);
                 let addr = b.ins().iadd_imm(base, imm.unwrap() as i64);
@@ -173,7 +172,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::SW) => {
                 let Instruction { rs2, rs1, imm, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
 
                 let base = b.use_var(regs[rs1]);
                 let addr = b.ins().iadd_imm(base, imm.unwrap() as i64);
@@ -196,7 +195,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::M(raki::MOpcode::MUL) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -222,127 +221,13 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
     let sign = b.func.signature.clone();
     b.finalize();
 
+    println!("----- Cranelift IR for translation block -----");
+    println!("{}", ctx.func.display());
+    println!("----- End of Cranelift IR -----");
+
     let id = jit.declare_anonymous_function(&sign).unwrap();
     jit.define_function(id, &mut ctx).unwrap();
     jit.clear_context(&mut ctx);
     jit.finalize_definitions().expect("must be ok");
     (jit.get_finalized_function(id), cnt)
-}
-
-fn load_two_regs(
-    b: &mut FunctionBuilder<'_>,
-    cpu_ptr: Value,
-    regs: &[Variable; 32],
-    regs_read_so_far: &mut [bool; 32],
-    rs1: Option<usize>,
-    rs2: Option<usize>,
-) -> (usize, usize) {
-    let rs1 = load_reg_if_needed(b, cpu_ptr, rs1.unwrap(), regs_read_so_far, regs);
-    let rs2 = load_reg_if_needed(b, cpu_ptr, rs2.unwrap(), regs_read_so_far, regs);
-    (rs1, rs2)
-}
-
-fn define_rd_and_mark_dirty(
-    b: &mut FunctionBuilder<'_>,
-    regs: &[Variable; 32],
-    dirty_regs: &mut [bool; 32],
-    rd: Option<usize>,
-    r: Value,
-) {
-    let rd_idx = rd.unwrap();
-    b.def_var(regs[rd_idx], r);
-    dirty_regs[rd_idx] = true;
-}
-
-fn load_reg_if_needed(
-    b: &mut FunctionBuilder<'_>,
-    cpu_ptr: Value,
-    reg: usize,
-    regs_read_so_far: &mut [bool; 32],
-    regs: &[Variable],
-) -> usize {
-    if !regs_read_so_far[reg] {
-        println!("loading reg {}", reg);
-        load_register_from_cpu(b, cpu_ptr, reg, &regs[reg]);
-        regs_read_so_far[reg] = true;
-    }
-    reg
-}
-
-fn load_register_from_cpu(
-    b: &mut FunctionBuilder<'_>,
-    cpu_ptr: Value,
-    reg: usize,
-    reg_var: &Variable,
-) {
-    // TODO convention first comes regs array.
-    println!("loading reg {} to {}", reg, reg_var);
-    let off = (reg * 4) as i64;
-    let addr = b.ins().iadd_imm(cpu_ptr, off);
-    let val = b.ins().load(types::I32, MemFlags::new(), addr, 0);
-    b.def_var(*reg_var, val);
-}
-
-fn store_registers_to_cpu(
-    b: &mut FunctionBuilder<'_>,
-    cpu_ptr: Value,
-    regs: &[Variable],
-    dirty_regs: &[bool],
-) {
-    // Only store registers that have been modified
-    for i in 0..32 {
-        // Skip registers that haven't been modified
-        if !dirty_regs[i] {
-            continue;
-        }
-        let reg_val = b.use_var(regs[i]);
-        let off = (i * 4) as i64;
-
-        // Calculate pointer to CPU's regs[i]
-        let addr = b.ins().iadd_imm(cpu_ptr, off);
-
-        // Store the register value back to CPU memory
-        b.ins().store(MemFlags::new(), reg_val, addr, 0);
-        println!("Stored reg {} value back to CPU at offset {}", i, off);
-    }
-}
-
-/// helper-ы для доступа к памяти: вызываем обычные Rust-функции
-fn call_mem_load(b: &mut FunctionBuilder, cpu_ptr: Value, addr: Value) -> Value {
-    let call_conv = b.func.signature.call_conv;
-    let sig = {
-        let sig = b.func.import_signature(Signature {
-            params: vec![AbiParam::new(types::I64), AbiParam::new(types::I32)],
-            returns: vec![AbiParam::new(types::I32)],
-            call_conv: call_conv,
-        });
-        b.func.import_function(ExtFuncData {
-            name: ExternalName::testcase("mem_load32"),
-            signature: sig,
-            colocated: false,
-        })
-    };
-    let call = b.ins().call(sig, &[cpu_ptr, addr]);
-    b.inst_results(call)[0]
-}
-
-fn call_mem_store(b: &mut FunctionBuilder, cpu_ptr: Value, addr: Value, val: Value) {
-    let call_conv = b.func.signature.call_conv;
-    let sig = {
-        let sig = b.func.import_signature(Signature {
-            params: vec![
-                AbiParam::new(types::I64),
-                AbiParam::new(types::I32),
-                AbiParam::new(types::I32),
-            ],
-            returns: vec![],
-            call_conv: call_conv,
-        });
-        b.func.import_function(ExtFuncData {
-            name: ExternalName::testcase("mem_store32"),
-            signature: sig,
-            colocated: false,
-        })
-    };
-    b.ins().call(sig, &[cpu_ptr, addr, val]);
 }
