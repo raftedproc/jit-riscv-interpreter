@@ -25,7 +25,7 @@ pub fn define_rd_and_mark_dirty(
 ) {
     let rd_idx = rd.unwrap();
     b.def_var(regs[rd_idx], r);
-    println!("define_rd_and_mark_dirty def rd {}", regs[rd_idx]);
+    // println!("define_rd_and_mark_dirty def rd {}", regs[rd_idx]);
     dirty_regs[rd_idx] = true;
 }
 
@@ -36,9 +36,9 @@ pub fn load_reg_if_needed(
     regs_read_so_far: &mut [bool; 32],
     regs: &[Variable],
 ) -> usize {
-    println!("load_reg_if_needed try to load reg {}", reg);
+    // println!("load_reg_if_needed try to load reg {}", reg);
     if !regs_read_so_far[reg] {
-      println!("load_reg_if_needed loading reg {}", reg);
+    //   println!("load_reg_if_needed loading reg {}", reg);
         load_register_from_cpu(b, cpu_ptr, reg, &regs[reg]);
         regs_read_so_far[reg] = true;
     }
@@ -52,7 +52,7 @@ pub fn load_register_from_cpu(
     reg_var: &Variable,
 ) {
     // TODO convention first comes regs array.
-    println!("loading reg {} to {}", reg, reg_var);
+    // println!("loading reg {} to {}", reg, reg_var);
     let off = (reg * 4) as i64;
     let addr = b.ins().iadd_imm(cpu_ptr, off);
     let val = b.ins().load(types::I32, MemFlags::new(), addr, 0);
@@ -72,7 +72,7 @@ pub fn store_registers_to_cpu(
             continue;
         }
         let reg_val = b.use_var(regs[i]);
-        println!("Register {}: retrieved value = {:?}", i, reg_val);
+        // println!("Register {}: retrieved value = {:?}", i, reg_val);
         let off = (i * 4) as i64;
 
         // Calculate pointer to CPU's regs[i]
@@ -80,7 +80,7 @@ pub fn store_registers_to_cpu(
 
         // Store the register value back to CPU memory
         b.ins().store(MemFlags::new(), reg_val, addr, 0);
-        println!("Stored reg {} value back to CPU at offset {}", i, off);
+        // println!("Stored reg {} value back to CPU at offset {}", i, off);
     }
 }
 

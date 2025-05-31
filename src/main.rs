@@ -9,7 +9,8 @@ use translator::{mem_load32, mem_store32};
 use crate::cpu::Cpu;
 use crate::translator::compile_tb;
 
-const RANDOM_MATH: [u32; 104] = [
+/// A set of random instructions for testing.
+const RANDOM_MATH: [u8; 104] = [
         0x13, 0x05, 0x10, 0x00, // addi x10, x0, 1
         0x13, 0x06, 0x20, 0x00, // addi x12, x0, 2
         0x13, 0x07, 0x30, 0x00, // addi x14, x0, 3
@@ -50,7 +51,7 @@ const RANDOM_MATH: [u32; 104] = [
     ];
 
 fn main() {
-    let code = SIMPLE_ADDITION;
+    let code = RANDOM_MATH;
 
     let mut cpu = Cpu::new(&code);
     let mut builder = JITBuilder::new(cranelift_module::default_libcall_names()).expect("failed to create JITBuilder");

@@ -45,7 +45,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
     let mut term_was_added = false;
     while cnt < max_insns {
         let raw = cpu.load32(pc);
-        println!("raw {:x}", raw);
+        // println!("raw {:x}", raw);
 
         // Handle the case where we might be reading beyond the program
         // (memory might be zeroed or have invalid instruction patterns)
@@ -159,7 +159,9 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
                 let zero = b.ins().iconst(types::I32, 0);
                 let one = b.ins().iconst(types::I32, 1);
                 let v = b.ins().select(cond, one, zero);
-                b.def_var(regs[rd.unwrap()], v);
+                let rd = rd.unwrap();
+                b.def_var(regs[rd], v);
+                dirty_regs[rd] = true;
             }
             OpcodeKind::BaseI(BaseIOpcode::LW) => {
                 let Instruction { rd, rs1, imm, .. } = inst;
@@ -221,13 +223,207 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
     let sign = b.func.signature.clone();
     b.finalize();
 
-    println!("----- Cranelift IR for translation block -----");
-    println!("{}", ctx.func.display());
-    println!("----- End of Cranelift IR -----");
+    // println!("----- Cranelift IR for translation block -----");
+    // println!("{}", ctx.func.display());
+    // println!("----- End of Cranelift IR -----");
 
     let id = jit.declare_anonymous_function(&sign).unwrap();
     jit.define_function(id, &mut ctx).unwrap();
     jit.clear_context(&mut ctx);
     jit.finalize_definitions().expect("must be ok");
     (jit.get_finalized_function(id), cnt)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cranelift_jit::{JITBuilder, JITModule};
+    use cranelift_module::default_libcall_names;
+    use crate::cpu::Cpu;
+
+    // Helper function to setup test environment
+    fn setup_test_env(program: &[u8]) -> (Cpu, JITModule, usize, u32) {
+        // Initialize CPU with the test program
+        let mut cpu = Cpu::new(program);
+        
+        // Setup JIT module
+        let mut builder = JITBuilder::new(default_libcall_names())
+            .expect("failed to create JITBuilder");
+        
+        // Register helper functions
+        builder.symbol("mem_load32", mem_load32 as *const u8);
+        builder.symbol("mem_store32", mem_store32 as *const u8);
+        
+        let mut jit = JITModule::new(builder);
+        
+        // Compile the translation block
+        let (fn_ptr, insns) = compile_tb(&mut jit, &cpu, program.len() / 4); // Max instructions based on program size
+        
+        // Execute the compiled code
+        let executor: extern "C" fn(*mut Cpu) -> u32 = unsafe { std::mem::transmute(fn_ptr) };
+        let next_pc = executor(&mut cpu);
+        
+        (cpu, jit, insns, next_pc)
+    }
+
+    #[test]
+    fn test_add_instruction() {
+        // Define a simple program with ADD instruction
+        let test_program = [
+            0x13, 0x05, 0x10, 0x00,     // addi x10, x0, 1
+            0x13, 0x0a, 0x20, 0x00,     // addi x20, x0, 2
+            0x33, 0x0e, 0xaa, 0x00,     // add  x28, x20, x10
+        ];
+
+        let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
+        
+        // Verify the results
+        assert_eq!(insns, 3, "Should have translated all 3 instructions");
+        assert_eq!(next_pc, 12, "PC should be 12 after execution");
+        assert_eq!(cpu.regs[10], 1, "Register x10 should be 1");
+        assert_eq!(cpu.regs[20], 2, "Register x20 should be 2");
+        assert_eq!(cpu.regs[28], 3, "Register x28 should be 3 (result of add)");
+    }
+
+    #[test]
+    fn test_sub_instruction() {
+        // Define a simple program with SUB instruction
+        let test_program = [
+            0x13, 0x05, 0x70, 0x00,     // addi x10, x0, 7
+            0x13, 0x0a, 0x30, 0x00,     // addi x20, x0, 3
+            0x33, 0x0e, 0x45, 0x41,     // sub  x28, x20, x10
+        ];
+
+        let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
+        
+        // Verify the results
+        assert_eq!(insns, 3, "Should have translated all 3 instructions");
+        assert_eq!(next_pc, 12, "PC should be 12 after execution");
+        assert_eq!(cpu.regs[10], 7, "Register x10 should be 7");
+        assert_eq!(cpu.regs[20], 3, "Register x20 should be 3");
+        assert_eq!(cpu.regs[28], -4i32 as u32, "Register x28 should be -4 (result of 3-7)");
+    }
+
+    #[test]
+    fn test_xor_instruction() {
+        // Define a simple program with XOR instruction
+        let test_program = [
+            0x13, 0x05, 0x30, 0x00,     // addi x10, x0, 3
+            0x13, 0x0a, 0x50, 0x00,     // addi x20, x0, 5
+            0x33, 0x4e, 0xaa, 0x00,     // xor  x28, x20, x10
+        ];
+
+        let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
+        
+        // Verify the results
+        assert_eq!(insns, 3, "Should have translated all 3 instructions");
+        assert_eq!(next_pc, 12, "PC should be 12 after execution");
+        assert_eq!(cpu.regs[10], 3, "Register x10 should be 3");
+        assert_eq!(cpu.regs[20], 5, "Register x20 should be 5");
+        assert_eq!(cpu.regs[28], 6, "Register x28 should be 6 (result of 5 XOR 3)");
+    }
+
+    #[test]
+    fn test_or_instruction() {
+        // Define a simple program with OR instruction
+        let test_program = [
+            0x13, 0x05, 0x90, 0x00,     // addi x10, x0, 9
+            0x13, 0x0a, 0x60, 0x00,     // addi x20, x0, 6
+            0x33, 0x6e, 0xaa, 0x00,     // or   x28, x20, x10
+        ];
+
+        let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
+        
+        // Verify the results
+        assert_eq!(insns, 3, "Should have translated all 3 instructions");
+        assert_eq!(next_pc, 12, "PC should be 12 after execution");
+        assert_eq!(cpu.regs[10], 9, "Register x10 should be 9");
+        assert_eq!(cpu.regs[20], 6, "Register x20 should be 6");
+        assert_eq!(cpu.regs[28], 15, "Register x28 should be 15 (result of 6 OR 9)");
+    }
+
+    #[test]
+    fn test_and_instruction() {
+        // Define a simple program with AND instruction
+        let test_program = [
+            0x13, 0x05, 0xF0, 0x00,     // addi x10, x0, 15
+            0x13, 0x0a, 0x60, 0x00,     // addi x20, x0, 6
+            0x33, 0x7e, 0xaa, 0x00,     // and  x28, x20, x10
+        ];
+
+        let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
+        
+        // Verify the results
+        assert_eq!(insns, 3, "Should have translated all 3 instructions");
+        assert_eq!(next_pc, 12, "PC should be 12 after execution");
+        assert_eq!(cpu.regs[10], 15, "Register x10 should be 15");
+        assert_eq!(cpu.regs[20], 6, "Register x20 should be 6");
+        assert_eq!(cpu.regs[28], 6, "Register x28 should be 6 (result of 6 AND 15)");
+    }
+
+    #[test]
+    fn test_sll_instruction() {
+        // Define a simple program with SLL (Shift Left Logical) instruction
+        let test_program = [
+            0x13, 0x05, 0x10, 0x00,     // addi x10, x0, 1
+            0x13, 0x0a, 0x20, 0x00,     // addi x20, x0, 2
+            0x33, 0x1e, 0xaa, 0x00,     // sll  x28, x20, x10
+        ];
+
+        let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
+        
+        // Verify the results
+        assert_eq!(insns, 3, "Should have translated all 3 instructions");
+        assert_eq!(next_pc, 12, "PC should be 12 after execution");
+        assert_eq!(cpu.regs[10], 1, "Register x10 should be 1");
+        assert_eq!(cpu.regs[20], 2, "Register x20 should be 2");
+        assert_eq!(cpu.regs[28], 4, "Register x28 should be 4 (result of 2 << 1)");
+    }
+
+    #[test]
+    fn test_srl_instruction() {
+        // Define a simple program with SRL (Shift Right Logical) instruction
+        let test_program = [
+            0x13, 0x05, 0x10, 0x00,     // addi x10, x0, 1
+            0x13, 0x0a, 0x80, 0x00,     // addi x20, x0, 8
+            0x33, 0x5e, 0xaa, 0x00,     // srl  x28, x20, x10
+        ];
+
+        let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
+        
+        // Verify the results
+        assert_eq!(insns, 3, "Should have translated all 3 instructions");
+        assert_eq!(next_pc, 12, "PC should be 12 after execution");
+        assert_eq!(cpu.regs[10], 1, "Register x10 should be 1");
+        assert_eq!(cpu.regs[20], 8, "Register x20 should be 8");
+        assert_eq!(cpu.regs[28], 4, "Register x28 should be 4 (result of 8 >> 1)");
+    }
+
+    #[test]
+    fn test_slt_instruction() {
+        // Define a simple program with SLT (Set Less Than) instruction
+        // RISC-V R-type instruction format for SLT: funct7(0000000) | rs2 | rs1 | funct3(010) | rd | opcode(0110011)
+        let test_program = [
+            0x13, 0x05, 0x50, 0x00,     // addi x10, x0, 5
+            0x13, 0x0a, 0x30, 0x00,     // addi x20, x0, 3
+            // For SLT, we need rs1=x20(3), rs2=x10(5), rd=x28
+            // SLT performs rd = (rs1 < rs2) ? 1 : 0, and since 3 < 5, we expect 1
+            0x33, 0x2e, 0xaa, 0x00,     // slt  x28, x20, x10
+        ];
+
+        let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
+        
+        // Verify the results
+        assert_eq!(insns, 3, "Should have translated all 3 instructions");
+        assert_eq!(next_pc, 12, "PC should be 12 after execution");
+
+        for i in 0..32 {
+        println!("x{} = {}", i, cpu.regs[i]);
+        }
+
+        assert_eq!(cpu.regs[10], 5, "Register x10 should be 5");
+        assert_eq!(cpu.regs[20], 3, "Register x20 should be 3");
+        assert_eq!(cpu.regs[28], 1, "Register x28 should be 1 (result of 3 < 5)");
+        
+    }
 }
