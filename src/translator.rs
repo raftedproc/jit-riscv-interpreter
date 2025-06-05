@@ -289,8 +289,8 @@ mod tests {
     fn test_sub_instruction() {
         // Define a simple program with SUB instruction
         let test_program = [
-            0x13, 0x05, 0x70, 0x00,     // addi x10, x0, 7
-            0x13, 0x0a, 0x30, 0x00,     // addi x20, x0, 3
+            0x13, 0x05, 0x30, 0x00,     // addi x10, x0, 7
+            0x13, 0x0a, 0x70, 0x00,     // addi x20, x0, 3
             0x33, 0x0e, 0x45, 0x41,     // sub  x28, x20, x10
         ];
 
@@ -299,8 +299,8 @@ mod tests {
         // Verify the results
         assert_eq!(insns, 3, "Should have translated all 3 instructions");
         assert_eq!(next_pc, 12, "PC should be 12 after execution");
-        assert_eq!(cpu.regs[10], 7, "Register x10 should be 7");
-        assert_eq!(cpu.regs[20], 3, "Register x20 should be 3");
+        assert_eq!(cpu.regs[10], 3, "Register x10 should be 3");
+        assert_eq!(cpu.regs[20], 7, "Register x20 should be 7");
         assert_eq!(cpu.regs[28], -4i32 as u32, "Register x28 should be -4 (result of 3-7)");
     }
 
@@ -418,7 +418,7 @@ mod tests {
         assert_eq!(next_pc, 12, "PC should be 12 after execution");
 
         for i in 0..32 {
-        println!("x{} = {}", i, cpu.regs[i]);
+            println!("x{} = {}", i, cpu.regs[i]);
         }
 
         assert_eq!(cpu.regs[10], 5, "Register x10 should be 5");
