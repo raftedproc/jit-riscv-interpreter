@@ -87,39 +87,19 @@ pub fn store_registers_to_cpu(
 }
 
 /// helper-ы для доступа к памяти: вызываем обычные Rust-функции
-pub fn call_mem_load(b: &mut FunctionBuilder, cpu_ptr: Value, addr: Value) -> Value {
-    let call_conv = b.func.signature.call_conv;
-    let sig = {
-        let sig = b.func.import_signature(Signature {
-            params: vec![AbiParam::new(types::I64), AbiParam::new(types::I32)],
-            returns: vec![AbiParam::new(types::I32)],
-            call_conv: call_conv,
-        });
-        b.func.import_function(ExtFuncData {
-            name: ExternalName::testcase("mem_load32"),
-            signature: sig,
-            colocated: false,
-        })
-    };
-    let call = b.ins().call(sig, &[cpu_ptr, addr]);
+pub fn call_mem_load(jit: &mut JITModule, b: &mut FunctionBuilder, cpu_ptr: Value, addr: Value) -> Value {
+    let mut sig = jit.make_signature();
+    sig.params.push(AbiParam::new(types::I64));
+    sig.params.push(AbiParam::new(types::I32));
+    sig.returns.push(AbiParam::new(types::I32));
+    
+    let func_id = jit.declare_function("mem_load32", Linkage::Import, &sig).expect("Failed to declare function");
+    let func_ref = jit.declare_func_in_func(func_id, &mut b.func);
+    let call = b.ins().call(func_ref, &[cpu_ptr, addr]);
     b.inst_results(call)[0]
 }
 
 pub fn call_mem_store(jit: &mut JITModule, b: &mut FunctionBuilder, cpu_ptr: Value, addr: Value, val: Value) {
-    // let call_conv = b.func.signature.call_conv;
-    // let sig = {
-    //     let sig = b.func.import_signature(Signature {
-    //         params: vec![
-    //             AbiParam::new(types::I64),
-    //             AbiParam::new(types::I32),
-    //             AbiParam::new(types::I32),
-    //         ],
-    //         returns: vec![],
-    //         call_conv: call_conv,
-    //     });
-    //     sig
-    // };
-
     let mut sig = jit.make_signature();
     sig.params.push(AbiParam::new(types::I64));
     sig.params.push(AbiParam::new(types::I32));

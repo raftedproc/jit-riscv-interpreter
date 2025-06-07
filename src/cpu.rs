@@ -1,5 +1,5 @@
 #[repr(C)]
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Cpu {
     pub regs: [u32; 32],
     pub pc:   u32,
