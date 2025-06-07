@@ -2,12 +2,14 @@ mod cpu;
 mod reg;
 mod translator;
 
-
 use cranelift_jit::{JITBuilder, JITModule};
 use translator::{mem_load32, mem_store32};
 
 use crate::cpu::Cpu;
 use crate::translator::compile_tb;
+
+use log::{debug, info, trace, warn, error, log_enabled};
+use env_logger::Env;
 
 /// A set of random instructions for testing.
 const RANDOM_MATH: [u8; 104] = [
@@ -51,34 +53,59 @@ const RANDOM_MATH: [u8; 104] = [
     ];
 
 fn main() {
+    // Initialize logger from environment variables
+    // Use RUST_LOG=debug,memap=trace to set debug level for all crates and trace level for this crate
+    // Example: RUST_LOG=debug ./memap
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    
+    info!("Starting RISC-V interpreter");
+    debug!("Initializing with test code");
     let code = RANDOM_MATH;
 
+    trace!("Creating CPU instance");
     let mut cpu = Cpu::new(&code);
+    trace!("Creating JIT builder");
     let mut builder = JITBuilder::new(cranelift_module::default_libcall_names()).expect("failed to create JITBuilder");
 
     // регистрируем helpers
+    debug!("Registering helper functions");
     builder.symbol("mem_load32",  mem_load32 as *const u8);
     builder.symbol("mem_store32", mem_store32 as *const u8);
 
-    let mut jit     = JITModule::new(builder);
+    trace!("Creating JIT module");
+    let mut jit = JITModule::new(builder);
 
-    // for i in 0..32 {
-    //     println!("x{} = {}", i, cpu.regs[i]);
-    // }
-
-    // исполняем, переводя TB максимум по 16 инструкций
+    info!("Starting execution loop");
     loop {
+        trace!("Compiling translation block at PC: {:#x}", cpu.pc);
         let (fn_ptr, insns) = compile_tb(&mut jit, &cpu, 16);
+        
+        debug!("Compiled {} instructions", insns);
+        if insns == 0 { 
+            info!("No more instructions to decode, exiting");
+            break; 
+        }
+        
+        trace!("Executing compiled code at address: {:p}", fn_ptr);
         let executor: extern "C" fn(*mut Cpu) -> u32 =
             unsafe { std::mem::transmute(fn_ptr) };
         let next_pc = executor(&mut cpu);
-        println!("insns number {}", insns);
-        if insns == 0 { break; }      // нет декодированных инструкций
+        
+        debug!("Execution completed, next PC: {:#x}, instructions executed: {}", next_pc, insns);
         cpu.pc = next_pc;
-        if next_pc == 0 { break; }    // наш demo JALR x0,0
+        if next_pc == 0 { 
+            info!("Hit JALR x0,0 instruction, stopping execution");
+            break; 
+        }
     }
 
-    // for i in 0..32 {
-    //     println!("x{} = {}", i, cpu.regs[i]);
-    // }
+    // Dump register state at trace level
+    if log_enabled!(log::Level::Trace) {
+        trace!("Final register state:");
+        for i in 0..32 {
+            trace!("Register x{} = {}", i, cpu.regs[i]);
+        }
+    }
+    
+    info!("Execution completed successfully");
 }

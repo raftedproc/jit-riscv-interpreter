@@ -2,6 +2,7 @@ use cranelift_codegen::ir::{condcodes::IntCC, *};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_jit::JITModule;
 use cranelift_module::Module;
+use log::{error, trace};
 use raki::{BaseIOpcode, Decode, Instruction, Isa, OpcodeKind};
 
 use crate::cpu::Cpu;
@@ -45,17 +46,16 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
     let mut term_was_added = false;
     while cnt < max_insns {
         let raw = cpu.load32(pc);
-        // println!("raw {:x}", raw);
 
         // Handle the case where we might be reading beyond the program
         // (memory might be zeroed or have invalid instruction patterns)
         let inst = match raw.decode(Isa::Rv32) {
             Ok(inst) => {
-                println!("inst {:?}", inst);
+                trace!("inst {:?}", inst);
                 inst
             }
             Err(e) => {
-                println!("Failed to decode instruction at pc={}: {:?}", pc, e);
+                error!("Failed to decode instruction at pc={}: {:?}", pc, e);
                 // We've reached the end of the program, so break the loop
                 break;
             }
@@ -68,7 +68,6 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
 
                 let v1 = b.use_var(regs[rs1]);
                 let r = b.ins().iadd_imm(v1, imm.unwrap() as i64);
-                println!("ADDI {} r {}", v1, r);
                 
                 regs_read_or_changed_so_far[rd.unwrap()] = true;
                 define_rd_and_mark_dirty(&mut b, &regs, &mut dirty_regs, rd, r);
@@ -164,7 +163,9 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
                 dirty_regs[rd] = true;
             }
             OpcodeKind::BaseI(BaseIOpcode::LW) => {
+
                 let Instruction { rd, rs1, imm, .. } = inst;
+
                 let rs1 = load_reg_if_needed(&mut b, cpu_ptr, rs1.unwrap(), &mut regs_read_or_changed_so_far, &regs);
 
                 let base = b.use_var(regs[rs1]);
@@ -179,8 +180,8 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
                 let base = b.use_var(regs[rs1]);
                 let addr = b.ins().iadd_imm(base, imm.unwrap() as i64);
                 let val = b.use_var(regs[rs2]);
-
-                call_mem_store(&mut b, cpu_ptr, addr, val);
+ 
+                call_mem_store( jit, &mut b, cpu_ptr, addr, val);
             }
             OpcodeKind::BaseI(BaseIOpcode::JALR) => {
                 let Instruction { rd, rs1, imm, .. } = inst;
@@ -222,10 +223,6 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
     // replace with ctx.func.signature ?
     let sign = b.func.signature.clone();
     b.finalize();
-
-    // println!("----- Cranelift IR for translation block -----");
-    // println!("{}", ctx.func.display());
-    // println!("----- End of Cranelift IR -----");
 
     let id = jit.declare_anonymous_function(&sign).unwrap();
     jit.define_function(id, &mut ctx).unwrap();
@@ -417,13 +414,103 @@ mod tests {
         assert_eq!(insns, 3, "Should have translated all 3 instructions");
         assert_eq!(next_pc, 12, "PC should be 12 after execution");
 
-        for i in 0..32 {
-            println!("x{} = {}", i, cpu.regs[i]);
-        }
-
         assert_eq!(cpu.regs[10], 5, "Register x10 should be 5");
         assert_eq!(cpu.regs[20], 3, "Register x20 should be 3");
         assert_eq!(cpu.regs[28], 1, "Register x28 should be 1 (result of 3 < 5)");
         
+    }
+
+    #[test]
+    fn test_lw_instruction() {
+        // Define a simple program with LW instruction
+        // This program will:
+        // 1. Set x10 to an address (0) 
+        // 2. Store the value 42 at memory address (0)
+        // 3. Load from that address into x28
+        let test_program = [
+            0x13, 0x05, 0x00, 0x00,     // addi x10, x0, 0      # set x10 to address 0
+            0x93, 0x0F, 0xA0, 0x02,     // addi x31, x0, 42     # set x31 to value 42
+            0x23, 0x20, 0xFF, 0x00,     // sw   x31, 0(x10)     # store 42 at address 0
+            // 0x83, 0x2E, 0x05, 0x00,     // lw   x28, 0(x10)     # load from address 0 into x28
+        ];
+
+        
+        let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
+        
+        // Verify the results
+        assert_eq!(insns, 4, "Should have translated all 4 instructions");
+        assert_eq!(next_pc, 16, "PC should be 16 after execution");
+        assert_eq!(cpu.regs[10], 0, "Register x10 should be 0");
+        assert_eq!(cpu.regs[31], 42, "Register x31 should be 42");
+        assert_eq!(cpu.regs[28], 42, "Register x28 should be 42 (loaded from memory)");
+    }
+
+    #[test]
+    fn test_sw_instruction() {
+        // Define a simple program with SW instruction
+        // This program will:
+        // 1. Set x10 to an address (4)
+        // 2. Set x20 to a value (123)
+        // 3. Store x20 to the address in x10
+        // 4. Load from that address into x28 to verify
+        let test_program = [
+            0x13, 0x05, 0x40, 0x00,     // addi x10, x0, 4      # set x10 to address 4
+            0x13, 0x0A, 0xB0, 0x07,     // addi x20, x0, 123    # set x20 to value 123
+            0x23, 0x22, 0x45, 0x01,     // sw   x20, 4(x10)     # store 123 at address 8
+            0x83, 0x2E, 0x85, 0x00,     // lw   x28, 8(x0)      # load from address 8 into x28
+        ];
+
+        let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
+        
+        // Verify the results
+        assert_eq!(insns, 4, "Should have translated all 4 instructions");
+        assert_eq!(next_pc, 16, "PC should be 16 after execution");
+        assert_eq!(cpu.regs[10], 4, "Register x10 should be 4");
+        assert_eq!(cpu.regs[20], 123, "Register x20 should be 123");
+        assert_eq!(cpu.regs[28], 123, "Register x28 should be 123 (loaded from memory)");
+    }
+
+    #[test]
+    fn test_jalr_instruction() {
+        // Define a simple program with JALR instruction
+        // This program will:
+        // 1. Set x10 to an address (20)
+        // 2. Jump to that address and link the return address to x1
+        // We expect the TB to end at the JALR, so we'll check the next_pc value
+        // Additionally, x1 should contain the return address (PC+4)
+        let test_program = [
+            0x13, 0x05, 0x40, 0x01,     // addi x10, x0, 20     # set x10 to address 20
+            0x67, 0x80, 0x05, 0x00,     // jalr x1, 0(x10)      # jump to address in x10
+            // The following should not be executed:
+            0x13, 0x0F, 0x10, 0x00,     // addi x30, x0, 1      # set x30 to 1
+        ];
+
+        let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
+        
+        // Verify the results
+        assert_eq!(insns, 2, "Should have translated 2 instructions (until JALR)");
+        assert_eq!(next_pc, 20, "PC should be 20 after execution (jumped to x10)");
+        assert_eq!(cpu.regs[10], 20, "Register x10 should be 20");
+        assert_eq!(cpu.regs[1], 8, "Register x1 should be 8 (return address: PC+4)");
+        assert_eq!(cpu.regs[30], 0, "Register x30 should be 0 (instruction after JALR not executed)");
+    }
+
+    #[test]
+    fn test_mul_instruction() {
+        // Define a simple program with MUL instruction
+        let test_program = [
+            0x13, 0x05, 0x70, 0x00,     // addi x10, x0, 7      # set x10 to 7
+            0x13, 0x0a, 0x40, 0x00,     // addi x20, x0, 4      # set x20 to 4
+            0x33, 0x0e, 0x45, 0x03,     // mul  x28, x10, x20   # x28 = x10 * x20
+        ];
+
+        let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
+        
+        // Verify the results
+        assert_eq!(insns, 3, "Should have translated all 3 instructions");
+        assert_eq!(next_pc, 12, "PC should be 12 after execution");
+        assert_eq!(cpu.regs[10], 7, "Register x10 should be 7");
+        assert_eq!(cpu.regs[20], 4, "Register x20 should be 4");
+        assert_eq!(cpu.regs[28], 28, "Register x28 should be 28 (result of 7 * 4)");
     }
 }
