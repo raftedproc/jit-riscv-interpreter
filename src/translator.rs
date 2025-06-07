@@ -50,7 +50,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
         // (memory might be zeroed or have invalid instruction patterns)
         let inst = match raw.decode(Isa::Rv32) {
             Ok(inst) => {
-                trace!("inst {:?}", inst);
+                println!("inst {:?}", inst);
                 inst
             }
             Err(e) => {
@@ -187,12 +187,15 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
                 let target = b.use_var(regs[rs1.unwrap()]);
                 let next = b.ins().iadd_imm(target, imm.unwrap() as i64);
                 let const_pc = b.ins().iconst(types::I32, (pc + 4) as i64);
-                b.def_var(regs[rd.unwrap()], const_pc);
+                define_rd_and_mark_dirty(&mut b, &regs, &mut dirty_regs, rd, const_pc);
 
+                // quit early after J-instruction
                 store_registers_to_cpu(&mut b, cpu_ptr, &regs, &dirty_regs);
 
                 b.ins().return_(&[next]);
                 term_was_added = true;
+                cnt += 1;
+
                 break;
             }
             OpcodeKind::M(raki::MOpcode::MUL) => {
@@ -218,6 +221,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
         b.ins().return_(rvals);
     }
 
+
     b.seal_all_blocks();
     // replace with ctx.func.signature ?
     let sign = b.func.signature.clone();
@@ -225,6 +229,9 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
 
     let id = jit.declare_anonymous_function(&sign).unwrap();
     jit.define_function(id, &mut ctx).unwrap();
+
+    println!("{}", ctx.func.display());
+
     jit.clear_context(&mut ctx);
     jit.finalize_definitions().expect("must be ok");
     (jit.get_finalized_function(id), cnt)
@@ -483,18 +490,19 @@ mod tests {
         // Additionally, x1 should contain the return address (PC+4)
         let test_program = [
             0x13, 0x05, 0x40, 0x01,     // addi x10, x0, 20     # set x10 to address 20
-            0x67, 0x80, 0x05, 0x00,     // jalr x1, 0(x10)      # jump to address in x10
+            0x67, 0x00, 0x05, 0x00,     // jalr x1, 0(x10)      # jump to address in x10
             // The following should not be executed:
             0x13, 0x0F, 0x10, 0x00,     // addi x30, x0, 1      # set x30 to 1
         ];
 
         let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
         
+        println!("next_pc {}", next_pc);
         // Verify the results
-        assert_eq!(insns, 1, "Should have translated 2 instructions (until JALR)");
+        assert_eq!(insns, 2, "Should have translated 2 instructions (until JALR)");
         assert_eq!(next_pc, 20, "PC should be 20 after execution (jumped to x10)");
         assert_eq!(cpu.regs[10], 20, "Register x10 should be 20");
-        assert_eq!(cpu.regs[1], 8, "Register x1 should be 8 (return address: PC+4)");
+        assert_eq!(cpu.regs[0], 8, "Register x1 should be 8 (return address: PC+4)");
         assert_eq!(cpu.regs[30], 0, "Register x30 should be 0 (instruction after JALR not executed)");
     }
 
