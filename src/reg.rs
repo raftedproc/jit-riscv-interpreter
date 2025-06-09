@@ -10,11 +10,12 @@ pub fn load_two_regs(
     cpu_ptr: Value,
     regs: &[Variable; 32],
     regs_read_so_far: &mut [bool; 32],
+    regs_dirty: &mut [bool;32],
     rs1: Option<usize>,
     rs2: Option<usize>,
 ) -> (usize, usize) {
-    let rs1 = load_reg_if_needed(b, cpu_ptr, rs1.unwrap(), regs_read_so_far, regs);
-    let rs2 = load_reg_if_needed(b, cpu_ptr, rs2.unwrap(), regs_read_so_far, regs);
+    let rs1 = load_reg_if_needed_and_not_dirty(b, cpu_ptr, rs1.unwrap(), regs_read_so_far, regs_dirty, regs);
+    let rs2 = load_reg_if_needed_and_not_dirty(b, cpu_ptr, rs2.unwrap(), regs_read_so_far, regs_dirty, regs);
     (rs1, rs2)
 }
 
@@ -27,20 +28,21 @@ pub fn define_rd_and_mark_dirty(
 ) {
     let rd_idx = rd.unwrap();
     b.def_var(regs[rd_idx], r);
-    // println!("define_rd_and_mark_dirty def rd {}", regs[rd_idx]);
     dirty_regs[rd_idx] = true;
+    // println!("define_rd_and_mark_dirty def rd {} {:?}", regs[rd_idx], dirty_regs);
 }
 
-pub fn load_reg_if_needed(
+pub fn load_reg_if_needed_and_not_dirty(
     b: &mut FunctionBuilder<'_>,
     cpu_ptr: Value,
     reg: usize,
     regs_read_so_far: &mut [bool; 32],
+    regs_dirty: &mut [bool;32],
     regs: &[Variable],
 ) -> usize {
-    // println!("load_reg_if_needed try to load reg {}", reg);
-    if !regs_read_so_far[reg] {
-    //   println!("load_reg_if_needed loading reg {}", reg);
+    // println!("load_reg_if_needed_and_not_dirty try to load reg {}", reg);
+    if !regs_read_so_far[reg] && !regs_dirty[reg] {
+        // println!("load_reg_if_needed_and_not_dirty loading reg {}", reg);
         load_register_from_cpu(b, cpu_ptr, reg, &regs[reg]);
         regs_read_so_far[reg] = true;
     }

@@ -63,27 +63,28 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             OpcodeKind::BaseI(BaseIOpcode::ADDI) => {
                 let Instruction { rd, rs1, imm, .. } = inst;
                 // todo not needed to actually load rs1 if it is x0
-                let rs1 = load_reg_if_needed(&mut b, cpu_ptr, rs1.unwrap(), &mut regs_read_or_changed_so_far, &regs);
+                let rs1 = load_reg_if_needed_and_not_dirty(&mut b, cpu_ptr, rs1.unwrap(), &mut regs_read_or_changed_so_far, &mut dirty_regs, &regs);
 
                 let v1 = b.use_var(regs[rs1]);
                 let r = b.ins().iadd_imm(v1, imm.unwrap() as i64);
                 
-                regs_read_or_changed_so_far[rd.unwrap()] = true;
+                // regs_read_or_changed_so_far[rd.unwrap()] = true;
                 define_rd_and_mark_dirty(&mut b, &regs, &mut dirty_regs, rd, r);
             }
             OpcodeKind::BaseI(BaseIOpcode::ADD) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
                 let v = b.ins().iadd(v1, v2);
 
                 define_rd_and_mark_dirty(&mut b, &regs, &mut dirty_regs, rd, v);
+                println!("ADD dirty {:?}", dirty_regs);
             }
             OpcodeKind::BaseI(BaseIOpcode::SUB) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -93,7 +94,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::XOR) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -103,7 +104,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::OR) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -114,7 +115,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::AND) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -125,7 +126,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::SLL) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -136,7 +137,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::SRL) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -147,7 +148,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::SRA) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -158,7 +159,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::SLT) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -174,7 +175,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::SLTU) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -189,7 +190,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::LB) => {
                 let Instruction { rd, rs1, imm, .. } = inst;
-                let rs1 = load_reg_if_needed(&mut b, cpu_ptr, rs1.unwrap(), &mut regs_read_or_changed_so_far, &regs);
+                let rs1 = load_reg_if_needed_and_not_dirty(&mut b, cpu_ptr, rs1.unwrap(), &mut regs_read_or_changed_so_far, &mut dirty_regs, &regs);
 
                 let base = b.use_var(regs[rs1]);
                 let addr = b.ins().iadd_imm(base, imm.unwrap() as i64);
@@ -206,7 +207,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::LH) => {
                 let Instruction { rd, rs1, imm, .. } = inst;
-                let rs1 = load_reg_if_needed(&mut b, cpu_ptr, rs1.unwrap(), &mut regs_read_or_changed_so_far, &regs);
+                let rs1 = load_reg_if_needed_and_not_dirty(&mut b, cpu_ptr, rs1.unwrap(), &mut regs_read_or_changed_so_far, &mut dirty_regs, &regs);
 
                 let base = b.use_var(regs[rs1]);
                 let addr = b.ins().iadd_imm(base, imm.unwrap() as i64);
@@ -223,7 +224,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::LBU) => {
                 let Instruction { rd, rs1, imm, .. } = inst;
-                let rs1 = load_reg_if_needed(&mut b, cpu_ptr, rs1.unwrap(), &mut regs_read_or_changed_so_far, &regs);
+                let rs1 = load_reg_if_needed_and_not_dirty(&mut b, cpu_ptr, rs1.unwrap(), &mut regs_read_or_changed_so_far, &mut dirty_regs, &regs);
 
                 let base = b.use_var(regs[rs1]);
                 let addr = b.ins().iadd_imm(base, imm.unwrap() as i64);
@@ -239,7 +240,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::LHU) => {
                 let Instruction { rd, rs1, imm, .. } = inst;
-                let rs1 = load_reg_if_needed(&mut b, cpu_ptr, rs1.unwrap(), &mut regs_read_or_changed_so_far, &regs);
+                let rs1 = load_reg_if_needed_and_not_dirty(&mut b, cpu_ptr, rs1.unwrap(), &mut regs_read_or_changed_so_far, &mut dirty_regs, &regs);
 
                 let base = b.use_var(regs[rs1]);
                 let addr = b.ins().iadd_imm(base, imm.unwrap() as i64);
@@ -257,7 +258,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
 
                 let Instruction { rd, rs1, imm, .. } = inst;
 
-                let rs1 = load_reg_if_needed(&mut b, cpu_ptr, rs1.unwrap(), &mut regs_read_or_changed_so_far, &regs);
+                let rs1 = load_reg_if_needed_and_not_dirty(&mut b, cpu_ptr, rs1.unwrap(), &mut regs_read_or_changed_so_far, &mut dirty_regs, &regs);
 
                 let base = b.use_var(regs[rs1]);
                 let addr = b.ins().iadd_imm(base, imm.unwrap() as i64);
@@ -268,7 +269,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::SB) => {
                 let Instruction { rs2, rs1, imm, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let base = b.use_var(regs[rs1]);
                 let addr = b.ins().iadd_imm(base, imm.unwrap() as i64);
@@ -278,7 +279,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::SH) => {
                 let Instruction { rs2, rs1, imm, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let base = b.use_var(regs[rs1]);
                 let addr = b.ins().iadd_imm(base, imm.unwrap() as i64);
@@ -288,7 +289,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::BaseI(BaseIOpcode::SW) => {
                 let Instruction { rs2, rs1, imm, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let base = b.use_var(regs[rs1]);
                 let addr = b.ins().iadd_imm(base, imm.unwrap() as i64);
@@ -315,7 +316,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             OpcodeKind::BaseI(BaseIOpcode::BEQ) => {
                 // Branch if equal - terminal instruction
                 let Instruction { rs1, rs2, imm, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
                 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -341,7 +342,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             OpcodeKind::BaseI(BaseIOpcode::BNE) => {
                 // Branch if not equal - terminal instruction
                 let Instruction { rs1, rs2, imm, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
                 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -367,7 +368,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             OpcodeKind::BaseI(BaseIOpcode::BLT) => {
                 // Branch if less than - terminal instruction
                 let Instruction { rs1, rs2, imm, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
                 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -393,7 +394,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             OpcodeKind::BaseI(BaseIOpcode::BGE) => {
                 // Branch if greater than or equal - terminal instruction
                 let Instruction { rs1, rs2, imm, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
                 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -419,7 +420,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             OpcodeKind::BaseI(BaseIOpcode::BLTU) => {
                 // Branch if less than unsigned - terminal instruction
                 let Instruction { rs1, rs2, imm, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
                 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -445,7 +446,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             OpcodeKind::BaseI(BaseIOpcode::BGEU) => {
                 // Branch if greater than or equal unsigned - terminal instruction
                 let Instruction { rs1, rs2, imm, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
                 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -498,7 +499,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             }
             OpcodeKind::M(raki::MOpcode::MUL) => {
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -509,7 +510,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             OpcodeKind::M(raki::MOpcode::MULH) => {
                 // Multiply high (signed x signed)
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -531,7 +532,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             OpcodeKind::M(raki::MOpcode::MULHU) => {
                 // Multiply high (unsigned x unsigned)
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -553,7 +554,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             OpcodeKind::M(raki::MOpcode::MULHSU) => {
                 // Multiply high (signed x unsigned)
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -575,7 +576,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             OpcodeKind::M(raki::MOpcode::DIV) => {
                 // Signed division
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -607,7 +608,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             OpcodeKind::M(raki::MOpcode::DIVU) => {
                 // Unsigned division
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -629,7 +630,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             OpcodeKind::M(raki::MOpcode::REM) => {
                 // Signed remainder
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -662,7 +663,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
             OpcodeKind::M(raki::MOpcode::REMU) => {
                 // Unsigned remainder
                 let Instruction { rd, rs1, rs2, .. } = inst;
-                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, rs1, rs2);
+                let (rs1, rs2) = load_two_regs(&mut b, cpu_ptr, &regs, &mut regs_read_or_changed_so_far, &mut dirty_regs, rs1, rs2);
 
                 let v1 = b.use_var(regs[rs1]);
                 let v2 = b.use_var(regs[rs2]);
@@ -724,7 +725,7 @@ pub fn compile_tb(jit: &mut JITModule, cpu: &Cpu, max_insns: usize) -> (*const u
     let id = jit.declare_anonymous_function(&sign).unwrap();
     jit.define_function(id, &mut ctx).unwrap();
 
-    println!("{}", ctx.func.display());
+    // println!("{}", ctx.func.display());
 
     jit.clear_context(&mut ctx);
     jit.finalize_definitions().expect("must be ok");
@@ -738,9 +739,9 @@ mod tests {
     use cranelift_module::default_libcall_names;
     use crate::cpu::Cpu;
 
-    fn create_cpu_with_program(program: &[u8]) -> Cpu {
-        Cpu::new(program)
-    }
+    // fn create_cpu_with_program(program: &[u8]) -> Cpu {
+    //     Cpu::new(program)
+    // }
     
     // Helper function to setup test environment
     fn setup_test_env(program: &[u8]) -> (Cpu, JITModule, usize, u32) {
@@ -1229,11 +1230,14 @@ mod tests {
             0x17, 0x15, 0x00, 0x00,     // auipc x10, 1 (PC + 4096)
             0x13, 0x0a, 0x00, 0x00,     // addi x20, x0, 0 (we'll manually check x10 value)
         ];
-
-        let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
         
+        let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
+
         // PC starts at 0, so x10 should be 0 + (1 << 12) = 4096
+        assert_eq!(insns, 2, "Should have translated all 2 instructions");
         assert_eq!(cpu.regs[10], 4096, "AUIPC should set x10 to PC + (1 << 12)");
+        assert_eq!(cpu.regs[20], 0, "Register x20 should be 0");
+        assert_eq!(next_pc, 8, "Next PC should be 8 after execution");
     }
 
     #[test]
@@ -1257,9 +1261,11 @@ mod tests {
         // Verify the results:
         // 0xFF as signed byte is -1 when sign-extended to 32 bits
         // 0xFF as unsigned byte is 255
+        assert_eq!(insns, 5, "Should have translated all 5 instructions");
         assert_eq!(cpu.regs[20] & 0xFF, 0xFF, "Register x20 low byte should be 0xFF");
         assert_eq!(cpu.regs[21] as i32, -1, "LB should sign-extend 0xFF to -1");
         assert_eq!(cpu.regs[22], 0xFF, "LBU should zero-extend 0xFF to 255");
+        assert_eq!(next_pc, 20, "Next PC should be 20 after execution");
     }
 
     #[test]
@@ -1283,9 +1289,12 @@ mod tests {
         // Verify the results:
         // 0xFFFF as signed halfword is -1 when sign-extended to 32 bits
         // 0xFFFF as unsigned halfword is 65535
+        assert_eq!(insns, 5, "Should have translated all 5 instructions");
+        assert_eq!(cpu.regs[10], 100, "Register x10 should be 100");
         assert_eq!(cpu.regs[20] as i32, -1, "Register x20 should be -1");
         assert_eq!(cpu.regs[21] as i32, -1, "LH should sign-extend 0xFFFF to -1");
         assert_eq!(cpu.regs[22], 0xFFFF, "LHU should zero-extend 0xFFFF to 65535");
+        assert_eq!(next_pc, 20, "Next PC should be 20 after execution");
     }
 
     #[test]
@@ -1326,9 +1335,11 @@ mod tests {
         
         // Verify the results
         // Set if x10 < x20 in unsigned comparison, which is false (0xFFFFFFFF > 10)
+        assert_eq!(insns, 3, "Should have translated all 3 instructions");
         assert_eq!(cpu.regs[10] as i32, -1, "Register x10 should be -1 (0xFFFFFFFF)");
         assert_eq!(cpu.regs[20], 10, "Register x20 should be 10");
         assert_eq!(cpu.regs[28], 0, "SLTU should set x28 to 0 (0xFFFFFFFF > 10)");
+        assert_eq!(next_pc, 12, "Next PC should be 12 after execution");
     }
 
     #[test]
@@ -1338,11 +1349,12 @@ mod tests {
         // 2. Set x20 to 0x7FFFFFFF (max signed int)
         // 3. MULH x28, x10, x20 (get high bits of signed multiplication)
         let test_program = [
-            // 0x37, 0x05, 0x00, 0x80,     // lui x10, 0x80000 (load 0x80000000)
-            0x13, 0x05, 0xf5, 0xff,     // addi x10, x10, -1 (0x7FFFFFFF)
-            // 0x37, 0x0a, 0x00, 0x80,     // lui x20, 0x80000
-            0x13, 0x0a, 0xfa, 0xff,     // addi x20, x20, -1 (0x7FFFFFFF)
-            0x33, 0x1e, 0x45, 0x03,     // mulh x28, x10, x20
+            0x93, 0x05, 0xF0, 0x01,   // addi x11, x0, 31
+            0x13, 0x05, 0x10, 0x00,   // addi x10, x0, 1
+            0x33, 0x15, 0xB5, 0x00,   // sll  x10, x10, x11
+            0x13, 0x05, 0xF5, 0xFF,   // addi x10, x10, -1
+            0x33, 0x0A, 0x05, 0x00,   // add  x20, x10, x0
+            0x33, 0x1E, 0x45, 0x03,   // mulh x28, x10, x20
         ];
 
         let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
@@ -1350,26 +1362,38 @@ mod tests {
         // 0x7FFFFFFF * 0x7FFFFFFF = 0x3FFFFFFF00000001
         // High 32 bits = 0x3FFFFFFF
         println!("{:?}", cpu.regs);
-        assert_eq!(cpu.regs[28], 0x3FFFFFFF, "MULH should get high 32 bits of signed multiplication");
+        assert_eq!(insns, 6, "Should have translated all 6 instructions");
+        assert_eq!(cpu.regs[10] as i32, 0x7FFFFFFF, "Register x10 should be 0x7FFFFFFF");
+        assert_eq!(cpu.regs[20] as i32, 0x7FFFFFFF, "Register x20 should be 0x7FFFFFFF");
+        assert_eq!(cpu.regs[28] as i32, 0x3FFFFFFF, "MULH should get high 32 bits of signed multiplication");
+        assert_eq!(next_pc, 24, "Next PC should be 24 after branch")
     }
 
     #[test]
     fn test_mulhu_instruction() {
         // Define a program with MULHU instruction (multiply high unsigned*unsigned)
-        // 1. Set x10 to -1 (0xFFFFFFFF unsigned)
-        // 2. Set x20 to -1 (0xFFFFFFFF unsigned)
-        // 3. MULHU x28, x10, x20
+        // 1. Set x10 to 0x7FFFFFFF (max signed int)
+        // 2. Set x20 to 0x7FFFFFFF (max signed int)
+        // 3. MULH x28, x10, x20 (get high bits of signed multiplication)
+
         let test_program = [
-            0x13, 0x05, 0xf0, 0xff,     // addi x10, x0, -1 (0xFFFFFFFF)
-            0x13, 0x0a, 0xf0, 0xff,     // addi x20, x0, -1 (0xFFFFFFFF)
-            0x33, 0x2e, 0x45, 0x03,     // mulhu x28, x10, x20
+            0x93, 0x05, 0xF0, 0x01,   // addi x11, x0, 31
+            0x13, 0x05, 0x10, 0x00,   // addi x10, x0, 1
+            0x33, 0x15, 0xB5, 0x00,   // sll  x10, x10, x11
+            0x13, 0x05, 0xF5, 0xFF,   // addi x10, x10, -1
+            0x33, 0x0A, 0x05, 0x00,   // add  x20, x10, x0
+            0x33, 0x2e, 0x45, 0x03,   // mulhu x28, x10, x20
         ];
 
         let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
         
-        // 0xFFFFFFFF * 0xFFFFFFFF = 0xFFFFFFFE00000001
-        // High 32 bits = 0xFFFFFFFE
-        assert_eq!(cpu.regs[28], 0xFFFFFFFE, "MULHU should get high 32 bits of unsigned multiplication");
+        // 0x7FFFFFFF * 0x7FFFFFFF = 0x3FFFFFFF00000001
+        // High 32 bits = 0x3FFFFFFF
+        assert_eq!(insns, 6, "Should have translated all 6 instructions");
+        assert_eq!(cpu.regs[10] as i32, 0x7FFFFFFF, "Register x10 should be 0x7FFFFFFF");
+        assert_eq!(cpu.regs[20] as i32, 0x7FFFFFFF, "Register x20 should be 0x7FFFFFFF");
+        assert_eq!(cpu.regs[28] as i32, 0x3FFFFFFF, "MULH should get high 32 bits of signed multiplication");
+        assert_eq!(next_pc, 24, "Next PC should be 24 after branch")
     }
 
     #[test]
@@ -1381,14 +1405,19 @@ mod tests {
         let test_program = [
             0x13, 0x05, 0xf0, 0xff,     // addi x10, x0, -1
             0x13, 0x0a, 0xf0, 0xff,     // addi x20, x0, -1 (as unsigned: 0xFFFFFFFF)
-            0x33, 0x3e, 0x45, 0x03,     // mulhsu x28, x10, x20
+            0x33, 0x2e, 0x45, 0x03,     // mulhsu x28, x10, x20
         ];
 
         let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
         
+        println!("{:?}", cpu.regs);
         // -1 * 0xFFFFFFFF (signed*unsigned) = 0xFFFFFFFF00000001
         // High 32 bits = 0xFFFFFFFF
+        assert_eq!(insns, 3, "Should have translated all 3 instructions");
+        assert_eq!(cpu.regs[10] as i32, -1, "Register x10 should be -1");
+        assert_eq!(cpu.regs[20], 0xFFFFFFFF, "Register x20 should be 0xFFFFFFFF");
         assert_eq!(cpu.regs[28], 0xFFFFFFFF, "MULHSU should get high 32 bits of signed*unsigned multiplication");
+        assert_eq!(next_pc, 12, "Next PC should be 12 after execution");
     }
 
     #[test]
@@ -1406,7 +1435,11 @@ mod tests {
         let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
         
         // -10 / 3 = -3 (truncated toward zero)
+        assert_eq!(insns, 3, "Should have translated all 3 instructions");
+        assert_eq!(cpu.regs[10] as i32, -10, "Register x10 should be -10");
+        assert_eq!(cpu.regs[20], 3, "Register x20 should be 3");
         assert_eq!(cpu.regs[28] as i32, -3, "DIV should perform signed division");
+        assert_eq!(next_pc, 12, "Next PC should be 12 after execution");
     }
 
     #[test]
@@ -1443,12 +1476,13 @@ mod tests {
         
         // -10 % 3 = -1
         assert_eq!(cpu.regs[28] as i32, -1, "REM should perform signed remainder");
+        assert_eq!(insns, 3, "Should have translated all 3 instructions");
+        assert_eq!(next_pc, 12, "Next PC should be 12 after execution");
     }
 
     #[test]
     fn test_remu_instruction() {
-        // Define a program with REMU instruction (unsigned remainder)
-        // 1. Set x10 to -1 (0xFFFFFFFF unsigned)
+        // Define a program with REMU instruction (unsigned remainder)        // 1. Set x10 to -1 (0xFFFFFFFF unsigned)
         // 2. Set x20 to 10
         // 3. REMU x28, x10, x20
         let test_program = [
@@ -1460,7 +1494,11 @@ mod tests {
         let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
         
         // 0xFFFFFFFF % 10 = 5 (unsigned)
+        assert_eq!(insns, 3, "Should have translated all 3 instructions");
+        assert_eq!(cpu.regs[10] as i32, -1, "Register x10 should be 0xFFFFFFFF");
+        assert_eq!(cpu.regs[20], 10, "Register x20 should be 10");
         assert_eq!(cpu.regs[28], 5, "REMU should perform unsigned remainder");
+        assert_eq!(next_pc, 12, "Next PC should be 12 after execution");
     }
 
     #[test]

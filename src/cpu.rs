@@ -18,7 +18,7 @@ impl Cpu {
     }
     pub fn store32(&mut self, addr: u32, val: u32) {
         let i = addr as usize;
-        println!("store32 addr {} val {:x}", i, val);
+        // println!("store32 addr {} val {:x}", i, val);
         self.mem[i..i + 4].copy_from_slice(&val.to_le_bytes());
     }
 }
