@@ -1211,8 +1211,9 @@ mod tests {
         let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
         
         // Verify the results
+        assert_eq!(insns, 1, "Should have translated only 1 instruction");
         assert_eq!(cpu.regs[30], 0, "Register x30 should still be 0 (skipped instruction)");
-        assert_eq!(cpu.regs[31], 42, "Register x31 should be 42");
+        assert_eq!(cpu.regs[31], 0, "Register x31 should be 0"); // JAL forces quit
         assert_eq!(next_pc, 8, "Next PC should be 8 after JAL");
     }
 
@@ -1223,7 +1224,7 @@ mod tests {
         // 2. Set x30 to 123 (should be skipped)
         // 3. Set x31 to 42 (should execute)
         let test_program = [
-            0x6f, 0x00, 0x80, 0x00,     // jal x1, 8 (jump to PC+8, store PC+4 in x1)
+            0xef, 0x00, 0x80, 0x00,     // jal x1, 8 (jump to PC+8, store PC+4 in x1)
             0x13, 0x0f, 0xb0, 0x07,     // addi x30, x0, 123 (should be skipped)
             0x13, 0x0f, 0xa0, 0x02,     // addi x31, x0, 42
         ];
@@ -1231,9 +1232,9 @@ mod tests {
         let (cpu, _, insns, next_pc) = setup_test_env(&test_program);
         
         // Verify the results
+        assert_eq!(insns, 1, "Should have translated all 1 instructions");
         assert_eq!(cpu.regs[1], 4, "Register x1 should contain return address (PC+4)");
         assert_eq!(cpu.regs[30], 0, "Register x30 should still be 0 (skipped instruction)");
-        assert_eq!(cpu.regs[31], 42, "Register x31 should be 42");
         assert_eq!(next_pc, 8, "Next PC should be 8 after JAL");
     }
 
