@@ -1259,15 +1259,15 @@ mod tests {
     #[test]
     fn test_byte_load_store_instructions() {
         // Define a program to test LB, LBU, SB instructions
-        // 1. Set x10 to address 100
+        // 1. Set x10 to address 1024
         // 2. Set x20 to 0xFF (will be sign-extended but we only store the bottom byte)
         // 3. Store byte from x20 to address in x10 (SB)
         // 4. Load signed byte from address in x10 to x21 (LB)
         // 5. Load unsigned byte from address in x10 to x22 (LBU)
         let test_program = [
-            0x13, 0x05, 0x40, 0x06,     // addi x10, x0, 100
+            0x13, 0x05, 0x00, 0x40,     // addi x10, x0, 1024
             0x13, 0x0a, 0xf0, 0x0f,     // addi x20, x0, 0xff (will be sign-extended)
-            0x23, 0x00, 0x45, 0x00,     // sb x20, 0(x10) 
+            0x23, 0x00, 0x45, 0x01,     // sb x20, 0(x10) 
             0x83, 0x0a, 0x05, 0x00,     // lb x21, 0(x10)
             0x03, 0x4b, 0x05, 0x00,     // lbu x22, 0(x10)
         ];
@@ -1278,6 +1278,8 @@ mod tests {
         // 0xFF as signed byte is -1 when sign-extended to 32 bits
         // 0xFF as unsigned byte is 255
         assert_eq!(insns, 5, "Should have translated all 5 instructions");
+        assert_eq!(cpu.regs[10], 1024, "Register x10 should be 1024");
+        assert_eq!(cpu.mem[1024], 0xFF, "Memory at x10 should be 0xFF");
         assert_eq!(cpu.regs[20] & 0xFF, 0xFF, "Register x20 low byte should be 0xFF");
         assert_eq!(cpu.regs[21] as i32, -1, "LB should sign-extend 0xFF to -1");
         assert_eq!(cpu.regs[22], 0xFF, "LBU should zero-extend 0xFF to 255");
@@ -1287,15 +1289,15 @@ mod tests {
     #[test]
     fn test_halfword_load_store_instructions() {
         // Define a program to test LH, LHU, SH instructions
-        // 1. Set x10 to address 100
+        // 1. Set x10 to address 1024
         // 2. Set x20 to 0xFFFF (will be sign-extended but we only store the bottom halfword)
         // 3. Store halfword from x20 to address in x10 (SH)
         // 4. Load signed halfword from address in x10 to x21 (LH)
         // 5. Load unsigned halfword from address in x10 to x22 (LHU)
         let test_program = [
-            0x13, 0x05, 0x40, 0x06,     // addi x10, x0, 100
+            0x13, 0x05, 0x00, 0x40,     // addi x10, x0, 1024
             0x13, 0x0a, 0xf0, 0xff,     // addi x20, x0, -1 (0xFFFF sign-extended)
-            0x23, 0x10, 0x45, 0x00,     // sh x20, 0(x10) 
+            0x23, 0x10, 0x45, 0x01,     // sh x20, 0(x10) 
             0x83, 0x1a, 0x05, 0x00,     // lh x21, 0(x10)
             0x03, 0x5b, 0x05, 0x00,     // lhu x22, 0(x10)
         ];
@@ -1306,7 +1308,7 @@ mod tests {
         // 0xFFFF as signed halfword is -1 when sign-extended to 32 bits
         // 0xFFFF as unsigned halfword is 65535
         assert_eq!(insns, 5, "Should have translated all 5 instructions");
-        assert_eq!(cpu.regs[10], 100, "Register x10 should be 100");
+        assert_eq!(cpu.regs[10], 1024, "Register x10 should be 100");
         assert_eq!(cpu.regs[20] as i32, -1, "Register x20 should be -1");
         assert_eq!(cpu.regs[21] as i32, -1, "LH should sign-extend 0xFFFF to -1");
         assert_eq!(cpu.regs[22], 0xFFFF, "LHU should zero-extend 0xFFFF to 65535");
